@@ -1,0 +1,195 @@
+From 98e8e25edf34aa09b2bc42ad7cc0a17282911867 Mon Sep 17 00:00:00 2001
+From: Florian Fainelli <f.fainelli@gmail.com>
+Date: Mon, 8 Jan 2018 16:37:45 -0800
+Subject: [PATCH] net: phy: broadcom: Implement test modes
+
+This patch allows putting the PHY in various test modes for running IEEE 802.3
+compliance tests with a capable scope equipement.
+
+Signed-off-by: Florian Fainelli <f.fainelli@gmail.com>
+---
+ drivers/net/phy/broadcom.c | 154 +++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 150 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/phy/broadcom.c b/drivers/net/phy/broadcom.c
+index af1a694c22fd2..3e6eaa31e9216 100644
+--- a/drivers/net/phy/broadcom.c
++++ b/drivers/net/phy/broadcom.c
+@@ -534,6 +534,150 @@ static int brcm_fet_config_intr(struct phy_device *phydev)
+ 	return err;
+ }
+ 
++static void bcm5395_1000bt_mode(struct phy_device *phydev, int mode)
++{
++	u16 val;
++
++	switch (mode) {
++	case 8:
++		val = 0x3f00;
++		break;
++	case 9:
++		val = 0x5f00;
++		break;
++	case 10:
++		val = 0x7f00;
++		break;
++	case 11:
++		val = 0x9f00;
++		break;
++	default:
++		return;	
++	}
++
++	phy_write(phydev, 0, 0x0140);
++	phy_write(phydev, 0x09, val);
++}
++
++static void bcm5395_set_test_mode(struct phy_device *phydev, int mode)
++{
++	switch (mode) {
++	case 1:
++		/* Force 100BaseT */
++		phy_write(phydev, 0x0, 0x2100);
++
++		/* Return Loss (bypass scrambler/descrambler) */
++		phy_write(phydev, 0x10, 0x0200);
++		break;
++	case 2:
++		/* Force 10BaseT:
++		 * Generates pseudo-random packet for 10BT IEEE testing
++		 * Tx output voltage, voltage te;plate, tp_idl and output timing jitter
++		 * tests
++		 */
++		phy_write(phydev, 0, 0x0100);
++		phy_write(phydev, 0x1e, 0x1800);
++		phy_write(phydev, 0x18, 0x0c00);
++		phy_write(phydev, 0x17, 0x8f45);
++		phy_write(phydev, 0x15, 0x0423);
++		break;
++	case 3:
++		/* Line side loopback or remote lookpac, force 10Bt, force link
++		 * set PHY for loopback (DUT RX) any ping (or random packet) will
++		 * be looped back on TX
++		 */
++		phy_write(phydev, 0, 0x0100);
++		phy_write(phydev, 0x1e, 0x1800);
++		phy_write(phydev, 0x18, 0x8804);
++		break;
++	case 4:
++		/* 10BT all 1111 pattern only */
++		phy_write(phydev, 0, 0x0100);
++		phy_write(phydev, 0x1e, 0x1800);
++		phy_write(phydev, 0x17, 0x0f0a);
++		phy_write(phydev, 0x15, 0x0003);
++		break;
++	case 5:
++		/* Force 10bt, link pulse template, Tx impedance tests */
++		phy_write(phydev, 0, 0x0100);
++		phy_write(phydev, 0x1e, 0x1800);
++		break;
++	case 6:
++		/* MDI-X swap */
++		phy_write(phydev, 0x1e, 0x1880);
++		break;
++	case 7:
++		/* Remote loopback */
++		phy_write(phydev, 0x18, 0x8804);
++		break;
++	case 8:
++	case 9:
++	case 10:
++	case 11:
++		bcm5395_1000bt_mode(phydev, mode);
++		break;
++	case 12:
++		/* 1000BaseT MDI return loss */
++		phy_write(phydev, 0, 0x0140);
++		break;
++	}
++}
++
++struct bcm53xx_phy_priv {
++	u64	*stats;
++	unsigned int mode;
++};
++
++static ssize_t phy_test_mode_show(struct device *dev,
++				struct device_attribute *attr,
++				char *buf)
++{
++	struct phy_device *phydev = to_phy_device(dev);
++	struct bcm53xx_phy_priv *priv = phydev->priv;
++	int mode;
++
++	mutex_lock(&phydev->lock);
++	mode = priv->mode;
++	mutex_unlock(&phydev->lock);
++
++	return snprintf(buf, PAGE_SIZE, "%d", mode);
++}
++
++static ssize_t phy_test_mode_store(struct device *dev,
++				   struct device_attribute *attr,
++				   const char *buf, size_t count)
++{
++	struct phy_device *phydev = to_phy_device(dev);
++	struct bcm53xx_phy_priv *priv = phydev->priv;
++	int ret, val;
++
++	ret = kstrtoint(buf, 10, &val);
++	if (ret < 0)
++		return ret;
++
++	if (val > 12)
++		return -EINVAL;
++
++	mutex_lock(&phydev->lock);
++	bcm5395_set_test_mode(phydev, val);
++	priv->mode = val;
++	mutex_unlock(&phydev->lock);
++
++	return count;
++}
++
++static DEVICE_ATTR(phy_test_mode, S_IWUSR | S_IRUGO,
++		   phy_test_mode_show, phy_test_mode_store);
++
++static struct attribute *bcm5395_phy_attrs[] = {
++	&dev_attr_phy_test_mode.attr,
++	NULL,
++};
++
++static struct attribute_group bcm5395_phy_attr_group = {
++	.attrs = bcm5395_phy_attrs,
++};
++
+ static int bcm5395_config_init(struct phy_device *phydev)
+ {
+ 	int ret;
+@@ -562,13 +706,10 @@ static int bcm5395_config_init(struct phy_device *phydev)
+ 	return phy_write(phydev, MII_BRCM_CORE_BASE1E, 0x12);
+ }
+ 
+-struct bcm53xx_phy_priv {
+-	u64	*stats;
+-};
+-
+ static int bcm53xx_phy_probe(struct phy_device *phydev)
+ {
+ 	struct bcm53xx_phy_priv *priv;
++	int ret;
+ 
+ 	priv = devm_kzalloc(&phydev->mdio.dev, sizeof(*priv), GFP_KERNEL);
+ 	if (!priv)
+@@ -582,6 +723,11 @@ static int bcm53xx_phy_probe(struct phy_device *phydev)
+ 	if (!priv->stats)
+ 		return -ENOMEM;
+ 
++	ret = sysfs_create_group(&phydev->mdio.dev.kobj,
++				 &bcm5395_phy_attr_group);
++	if (ret)
++		return ret;
++
+ 	return 0;
+ }
+ 

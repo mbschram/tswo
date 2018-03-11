@@ -1,0 +1,39 @@
+From 08fdc2fcc1ac320ebf5021d9ddb5e0870a36f6fb Mon Sep 17 00:00:00 2001
+From: Guenter Roeck <linux@roeck-us.net>
+Date: Sun, 15 Jun 2014 14:11:57 -0700
+Subject: [PATCH] gpio: ichx: Add support for custom gpio pin names
+
+The gpio subsystem supports custom pin names. Adding support for
+it is often done through platform data, which does not work well
+for mfd client drivers. Add __weak variable ichx_gpiolib_names[]
+instead; it can be overwritten by a platform specific variable
+as long as both files are built into the kernel.
+
+Signed-off-by: Guenter Roeck <linux@roeck-us.net>
+---
+ drivers/gpio/gpio-ich.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/gpio/gpio-ich.c b/drivers/gpio/gpio-ich.c
+index 173c46a360d52..3fb36ca8ed342 100644
+--- a/drivers/gpio/gpio-ich.c
++++ b/drivers/gpio/gpio-ich.c
+@@ -430,6 +430,9 @@ static const struct irq_domain_ops ichx_gpio_irq_ops = {
+ 	.map = ichx_gpio_irq_map,
+ };
+ 
++/* Allow overriding default gpio pin names */
++const char * const (* const __weak ichx_gpiolib_names)[];
++
+ static void ichx_gpiolib_setup(struct gpio_chip *chip)
+ {
+ 	chip->owner = THIS_MODULE;
+@@ -451,6 +454,8 @@ static void ichx_gpiolib_setup(struct gpio_chip *chip)
+ 	chip->can_sleep = false;
+ 	chip->dbg_show = NULL;
+ 	chip->to_irq = ichx_gpio_to_irq;
++	if (ichx_gpiolib_names)
++		chip->names = *ichx_gpiolib_names;
+ }
+ 
+ /* ICH6-based, 631xesb-based */
