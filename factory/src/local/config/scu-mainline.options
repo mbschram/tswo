@@ -1,0 +1,13 @@
+OUTPUT_DIR=build_core2duo_4.16.0-rc5
+DUAL_KERNEL=0
+DEVICE_TREE=0
+SWLOAD_MASTER=1
+EXTRA_TEST_FILES=src/local/test/scuBin
+WORKORDER_CONFIG="x86_4.16.0-rc5"
+WORKORDER_OPTIONS=(
+[TSWO_RFS_CONTENT]=file://$PWD/src/local/overlays/scu.tgz
+[TSWO_RFS_CUSTOM_SCRIPT]=file://$PWD/src/local/overlays/customize-x86-mainline.sh
+[TSWO_kernel_EXTRAVERSION]=-scu
+[TSWO_KERNEL_EXTERNAL_CONFIG]=$PWD/src/local/config/4.16.0-rc5-scu.config
+)
+OVERLAY_DIRS="scu"
